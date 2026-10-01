@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --primary: #F59E0B;
+    --background: #070708;
+    --surface: #17181A;
+    --surface-dark: #0D0D0E;
+    --surface-light: #202124;
+    --border: #27282C;
+    --text: #FFFFFF;
+    --text-secondary: #9E9EA7;
+    --text-muted: #71717A;
+  }
+
+  body {
+    background-color: #070708;
+    color: #FFFFFF;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* Custom sleek scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0D0D0E;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #27282C;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #F59E0B;
+  }
+}
+
+@layer utilities {
+  .glass-card {
+    background: rgba(23, 24, 26, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .glow-gold {
+    box-shadow: 0 0 25px -5px rgba(245, 158, 11, 0.3);
+  }
+
+  .glow-gold-lg {
+    box-shadow: 0 0 40px -8px rgba(245, 158, 11, 0.4);
+  }
+
+  .text-glow {
+    text-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+  }
+
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+
+  .perspective-1500 {
+    perspective: 1500px;
+  }
+
+  .transform-style-3d {
+    transform-style: preserve-3d;
+  }
+
+  .backface-hidden {
+    backface-visibility: hidden;
+  }
+}
+
+@keyframes clockwise-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes clockwise-orbit {
+  0% {
+    transform: rotateY(0deg);
+  }
+  100% {
+    transform: rotateY(-360deg);
+  }
+}
+
+.animate-clockwise-spin {
+  animation: clockwise-spin 20s linear infinite;
+}
+
+.animate-clockwise-orbit {
+  animation: clockwise-orbit 24s linear infinite;
+}
+

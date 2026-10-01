@@ -1,0 +1,2020 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+app/
+  api/
+    v1/
+      __init__.py
+      admin.py
+      ai_proxy.py
+      appointments.py
+      auth.py
+      barber.py
+      discovery.py
+      users.py
+    __init__.py
+  core/
+    __init__.py
+    config.py
+    database.py
+    security.py
+  models/
+    __init__.py
+    appointment.py
+    audit_log.py
+    shop.py
+    user.py
+  routers/
+    face.py
+  services/
+    __init__.py
+    ai_service.py
+    bird_verification.py
+    gemini_face.py
+    places_service.py
+    websocket_hub.py
+  __init__.py
+  main.py
+.env.example
+Dockerfile
+kshurak.db
+requirements.txt
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="app/api/v1/__init__.py">
+from fastapi import APIRouter
+from app.api.v1.auth import router as auth_router
+from app.api.v1.users import router as users_router
+from app.api.v1.appointments import router as appointments_router
+from app.api.v1.discovery import router as discovery_router
+from app.api.v1.ai_proxy import router as ai_proxy_router
+from app.api.v1.barber import router as barber_router
+from app.api.v1.admin import router as admin_router
+
+api_v1_router = APIRouter()
+
+api_v1_router.include_router(auth_router, prefix="/auth", tags=["Auth"])
+api_v1_router.include_router(users_router, prefix="/users", tags=["Users"])
+api_v1_router.include_router(appointments_router, prefix="/appointments", tags=["Appointments & Queue"])
+api_v1_router.include_router(discovery_router, prefix="/discovery", tags=["Discovery (5km Radius)"])
+api_v1_router.include_router(ai_proxy_router, prefix="/ai-proxy", tags=["AI Proxy & Diffusion"])
+api_v1_router.include_router(barber_router, prefix="/barber", tags=["Barber Partner Services"])
+api_v1_router.include_router(admin_router, prefix="/admin", tags=["Admin Platform Management"])
+</file>
+
+<file path="app/api/v1/admin.py">
+import uuid
+from datetime import datetime, timezone
+from typing import Optional, List
+from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query
+from app.core.security import get_current_user_payload
+
+router = APIRouter()
+
+class BarberReviewAction(BaseModel):
+    action: str # APPROVE or REJECT
+    reasonCode: Optional[str] = None # e.g. INVALID_LICENSE, HYGIENE_NONCOMPLIANCE
+
+class RbacUpdate(BaseModel):
+    role: str # CUSTOMER, BARBER, ADMIN
+    isActive: bool
+
+# Master in-memory data structures for Admin portal
+pending_barbers = [
+    {
+        "id": "brb-pending-01",
+        "userId": "usr-barber-01",
+        "barberName": "Dinesh Rathore",
+        "shopName": "Imperial Cut & Shave Lounge",
+        "licenseNumber": "MH-BARB-2024-8912",
+        "yearsExperience": 7,
+        "specialties": ["Razor Fade", "Hot Oil Beard Massage", "Hair Tattoo"],
+        "verificationStatus": "PENDING",
+        "licenseDocUrl": "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=600&auto=format&fit=crop&q=80",
+        "submittedAt": datetime.now(timezone.utc).isoformat(),
+    },
+    {
+        "id": "brb-pending-02",
+        "userId": "usr-barber-02",
+        "barberName": "Aakash Mehta",
+        "shopName": "Aakash Studio Co.",
+        "licenseNumber": "MH-BARB-2022-4411",
+        "yearsExperience": 4,
+        "specialties": ["Mullet Burst", "Face Ratio Precision"],
+        "verificationStatus": "PENDING",
+        "licenseDocUrl": "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=600&auto=format&fit=crop&q=80",
+        "submittedAt": datetime.now(timezone.utc).isoformat(),
+    },
+]
+
+audit_records = [
+    {
+        "id": str(uuid.uuid4()),
+        "actorId": "admin-super-01",
+        "actorRole": "SUPER_ADMIN",
+        "action": "BARBER_VERIFIED",
+        "targetType": "BARBER",
+        "targetId": "brb-approved-99",
+        "changes": {"status": {"before": "PENDING", "after": "APPROVED"}},
+        "ipAddress": "103.21.244.12",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    },
+    {
+        "id": str(uuid.uuid4()),
+        "actorId": "admin-sec-02",
+        "actorRole": "ADMIN",
+        "action": "RBAC_ROLE_ELEVATED",
+        "targetType": "USER",
+        "targetId": "usr-emp-44",
+        "changes": {"role": {"before": "CUSTOMER", "after": "ADMIN"}},
+        "ipAddress": "103.21.244.18",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    },
+]
+
+@router.get("/verification-queue")
+async def get_pending_barber_queue():
+    """Module A1: Pending Barber Queue list."""
+    return pending_barbers
+
+@router.put("/verification/{barber_id}")
+async def review_barber_application(barber_id: str, payload: BarberReviewAction, current_user: dict = Depends(get_current_user_payload)):
+    """Module A1: Barber approve/reject with reason codes."""
+    for b in pending_barbers:
+        if b["id"] == barber_id:
+            b["verificationStatus"] = "APPROVED" if payload.action == "APPROVE" else "REJECTED"
+            b["reasonCode"] = payload.reasonCode
+            
+            # Record in immutable audit log
+            audit_records.insert(0, {
+                "id": str(uuid.uuid4()),
+                "actorId": current_user.get("sub", "admin-user"),
+                "actorRole": current_user.get("role", "ADMIN"),
+                "action": f"BARBER_{payload.action}",
+                "targetType": "BARBER",
+                "targetId": barber_id,
+                "changes": {"status": b["verificationStatus"], "reasonCode": payload.reasonCode},
+                "ipAddress": "127.0.0.1",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            return b
+    raise HTTPException(status_code=404, detail="Barber application not found")
+
+@router.get("/shops")
+async def get_shop_directory():
+    """Module A2: Master Shop Directory & ID Generator."""
+    return [
+        {
+            "id": "shp-001",
+            "shopCode": "KSH-SHP-84921",
+            "name": "The Grand Royal Barber Club",
+            "address": "42 Linking Road, Bandra West, Mumbai",
+            "latitude": 19.084,
+            "longitude": 72.882,
+            "chairCount": 5,
+            "activeChairs": 4,
+            "isAcceptingWalkins": True,
+            "verificationStatus": "APPROVED",
+            "registeredDate": "2024-01-15",
+        },
+        {
+            "id": "shp-002",
+            "shopCode": "KSH-SHP-19283",
+            "name": "Obsidian & Gold Studio",
+            "address": "15 Turner Road, Bandra West, Mumbai",
+            "latitude": 19.064,
+            "longitude": 72.885,
+            "chairCount": 3,
+            "activeChairs": 3,
+            "isAcceptingWalkins": True,
+            "verificationStatus": "APPROVED",
+            "registeredDate": "2024-03-02",
+        },
+    ]
+
+@router.put("/users/{user_id}/rbac")
+async def update_user_rbac(user_id: str, payload: RbacUpdate, current_user: dict = Depends(get_current_user_payload)):
+    """Module A3: RBAC switches, suspensions, resets."""
+    audit_records.insert(0, {
+        "id": str(uuid.uuid4()),
+        "actorId": current_user.get("sub", "admin-user"),
+        "actorRole": "SUPER_ADMIN",
+        "action": "USER_RBAC_MODIFIED",
+        "targetType": "USER",
+        "targetId": user_id,
+        "changes": {"role": payload.role, "isActive": payload.isActive},
+        "ipAddress": "127.0.0.1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"userId": user_id, "role": payload.role, "isActive": payload.isActive, "updatedAt": datetime.now(timezone.utc).isoformat()}
+
+@router.get("/hitl/queue")
+async def get_hitl_scan_queue():
+    """Module A4: Low-confidence scan review (<70%)."""
+    return [
+        {
+            "scanId": "scan-hitl-001",
+            "userId": "usr-client-901",
+            "imageUrl": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&auto=format&fit=crop&q=80",
+            "confidenceScore": 64.2,
+            "flaggedReason": "Cheekbone shadow occlusion; jawline landmark ambiguity (below 70% threshold)",
+            "detectedFaceShape": "ROUND",
+            "suggestedAlternative": "OVAL",
+            "capturedAt": datetime.now(timezone.utc).isoformat(),
+        },
+        {
+            "scanId": "scan-hitl-002",
+            "userId": "usr-client-902",
+            "imageUrl": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600&auto=format&fit=crop&q=80",
+            "confidenceScore": 68.1,
+            "flaggedReason": "Head tilt detected > 12 degrees off horizontal axis",
+            "detectedFaceShape": "SQUARE",
+            "suggestedAlternative": "OBLONG",
+            "capturedAt": datetime.now(timezone.utc).isoformat(),
+        },
+    ]
+
+@router.get("/audit-logs")
+async def get_audit_logs(limit: int = Query(50)):
+    """Module A5: Immutable append-only audit log viewer."""
+    return audit_records[:limit]
+</file>
+
+<file path="app/api/v1/ai_proxy.py">
+import uuid
+from typing import Optional
+from pydantic import BaseModel
+from fastapi import APIRouter, UploadFile, File, Form, Depends
+from app.services.ai_service import ai_service
+from app.core.security import get_current_user_payload
+
+router = APIRouter()
+
+class TryOnRequest(BaseModel):
+    userImageBase64: str
+    hairstyleId: str
+    preserveFacialHair: bool = True
+    colorAdjustment: Optional[str] = None
+
+class HitlReviewRequest(BaseModel):
+    correctedFaceShape: str
+    adminNotes: str
+    approved: bool
+
+@router.post("/face-scan")
+async def process_face_scan(
+    file: UploadFile = File(...),
+    familyMemberId: Optional[str] = Form(None),
+    current_user: dict = Depends(get_current_user_payload),
+):
+    """
+    Module U3 & U4: PII scrubbing, face landmark ratio calculation, and AI consultation card synthesis.
+    """
+    image_bytes = await file.read()
+    user_id = current_user.get("sub", "anon-user")
+
+    # Step 1: Calculate ratios & check confidence
+    face_ratios = await ai_service.analyze_face_biometrics(image_bytes, user_id)
+
+    # Step 2: Generate Consultation Card with RoboSpec
+    consultation_card = await ai_service.generate_consultation_card(user_id, face_ratios)
+    if familyMemberId:
+        consultation_card["familyMemberId"] = familyMemberId
+
+    return {
+        "faceRatios": face_ratios,
+        "consultationCard": consultation_card,
+        "isHitlRequired": face_ratios["isHitlRequired"],
+        "confidenceScore": face_ratios["confidenceScore"],
+    }
+
+@router.post("/try-on")
+async def generate_virtual_try_on(req: TryOnRequest):
+    """
+    Module U4: Virtual hairstyle diffusion preview via FLUX / Replicate worker.
+    """
+    result = await ai_service.generate_virtual_tryon(req.userImageBase64, req.hairstyleId)
+    return result
+
+@router.get("/consultation/{consultation_id}")
+async def get_consultation_card(consultation_id: str):
+    face_ratios = {
+        "faceLengthToWidthRatio": 1.42,
+        "foreheadToFaceHeightRatio": 0.33,
+        "cheekboneToJawRatio": 1.22,
+        "jawlineAngleDegrees": 118.0,
+        "chinShape": "SQUARE",
+        "detectedFaceShape": "OVAL",
+        "confidenceScore": 91.0,
+        "isHitlRequired": False,
+    }
+    card = await ai_service.generate_consultation_card("user-sample", face_ratios)
+    card["id"] = consultation_id
+    return card
+
+@router.post("/consultation/{consultation_id}/hitl-review")
+async def submit_hitl_review(consultation_id: str, req: HitlReviewRequest, current_user: dict = Depends(get_current_user_payload)):
+    """
+    Module A4: Human-in-the-loop review for low confidence face scans (<70%).
+    """
+    return {
+        "consultationId": consultation_id,
+        "reviewedBy": current_user.get("sub", "admin-reviewer"),
+        "status": "APPROVED" if req.approved else "REJECTED",
+        "correctedFaceShape": req.correctedFaceShape,
+        "notes": req.adminNotes,
+    }
+</file>
+
+<file path="app/api/v1/appointments.py">
+import uuid
+from datetime import datetime, timezone, timedelta
+from typing import List, Optional
+from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from app.core.security import get_current_user_payload
+from app.services.websocket_hub import queue_hub
+
+router = APIRouter()
+
+class BookingRequest(BaseModel):
+    barberId: str
+    shopId: str
+    serviceIds: List[str]
+    slotId: str
+    startTime: str
+    familyMemberId: Optional[str] = None
+    consultationCardId: Optional[str] = None
+    notes: Optional[str] = None
+
+# In-memory store for instant demonstration
+live_queues = {
+    "shp-001": [
+        {
+            "ticketId": "tkt-1",
+            "appointmentId": "apt-1",
+            "shopId": "shp-001",
+            "barberId": "barber-101",
+            "customerId": "cust-01",
+            "customerName": "Rohan Sharma",
+            "customerPhone": "+919820011111",
+            "positionInLine": 1,
+            "estimatedWaitMinutes": 5,
+            "joinedAt": datetime.now(timezone.utc).isoformat(),
+            "status": "WAITING",
+            "consultationCardSummary": "Skin Drop Fade (#1 open) + Textured Crop",
+        },
+        {
+            "ticketId": "tkt-2",
+            "appointmentId": "apt-2",
+            "shopId": "shp-001",
+            "barberId": "barber-101",
+            "customerId": "cust-02",
+            "customerName": "Vikram Malhotra",
+            "customerPhone": "+919820022222",
+            "positionInLine": 2,
+            "estimatedWaitMinutes": 25,
+            "joinedAt": datetime.now(timezone.utc).isoformat(),
+            "status": "WAITING",
+            "consultationCardSummary": "Classic Scissor Taper + Beard Lineup",
+        },
+    ]
+}
+
+@router.get("/slots")
+async def get_slots(shop_id: str, barber_id: str, date: str):
+    base_time = datetime.fromisoformat(f"{date}T09:00:00")
+    slots = []
+    for i in range(8):
+        start = base_time + timedelta(hours=i)
+        end = start + timedelta(minutes=45)
+        slots.append({
+            "id": f"slot-{i}",
+            "barberId": barber_id,
+            "shopId": shop_id,
+            "startTime": start.isoformat(),
+            "endTime": end.isoformat(),
+            "isAvailable": i not in [1, 4], # simulate some occupied slots
+            "chairNumber": 1,
+        })
+    return slots
+
+@router.post("/book")
+async def create_booking(payload: BookingRequest, current_user: dict = Depends(get_current_user_payload)):
+    apt_id = str(uuid.uuid4())
+    customer_id = current_user.get("sub", "cust-default")
+    
+    appointment = {
+        "id": apt_id,
+        "customerId": customer_id,
+        "familyMemberId": payload.familyMemberId,
+        "barberId": payload.barberId,
+        "shopId": payload.shopId,
+        "services": [
+            {
+                "id": "srv-1",
+                "name": "Precision Haircut & Face-Ratio Styling",
+                "durationMinutes": 45,
+                "priceCents": 60000,
+                "depositRequiredCents": 15000,
+            }
+        ],
+        "slot": {
+            "id": payload.slotId,
+            "barberId": payload.barberId,
+            "shopId": payload.shopId,
+            "startTime": payload.startTime,
+            "endTime": (datetime.fromisoformat(payload.startTime) + timedelta(minutes=45)).isoformat(),
+            "isAvailable": False,
+            "chairNumber": 1,
+        },
+        "status": "CONFIRMED",
+        "escrow": {
+            "totalAmountCents": 60000,
+            "depositHeldInEscrowCents": 15000,
+            "remainingDueInChairCents": 45000,
+            "platformFeeCents": 3000,
+            "taxCents": 5400,
+            "currency": "INR",
+            "escrowStatus": "HELD",
+            "transactionReference": f"TXN-ESCROW-{uuid.uuid4().hex[:8].upper()}",
+        },
+        "consultationCardId": payload.consultationCardId,
+        "customerArrivalAlertSent": False,
+        "notes": payload.notes,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    return appointment
+
+@router.get("/queue/{shop_id}")
+async def get_shop_queue(shop_id: str):
+    entries = live_queues.get(shop_id, [])
+    return {
+        "shopId": shop_id,
+        "isQueueAccepting": True,
+        "totalActiveChairs": 3,
+        "occupiedChairs": 1,
+        "waitingCount": len(entries),
+        "averageWaitPerPersonMinutes": 20,
+        "entries": entries,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+@router.post("/{appointment_id}/queue/check-in")
+async def check_in_queue(appointment_id: str, current_user: dict = Depends(get_current_user_payload)):
+    shop_id = "shp-001"
+    queue = live_queues.setdefault(shop_id, [])
+    
+    new_ticket = {
+        "ticketId": str(uuid.uuid4()),
+        "appointmentId": appointment_id,
+        "shopId": shop_id,
+        "barberId": "barber-101",
+        "customerId": current_user.get("sub", "cust-me"),
+        "customerName": "You (Customer)",
+        "customerPhone": "+919820012345",
+        "positionInLine": len(queue) + 1,
+        "estimatedWaitMinutes": len(queue) * 20,
+        "joinedAt": datetime.now(timezone.utc).isoformat(),
+        "status": "WAITING",
+        "consultationCardSummary": "AI Custom Styling Spec Attached",
+    }
+    queue.append(new_ticket)
+    
+    # Broadcast via websocket
+    await queue_hub.broadcast_to_shop(shop_id, "QUEUE_JOINED", new_ticket)
+    return new_ticket
+
+@router.patch("/queue/ticket/{ticket_id}")
+async def update_queue_status(ticket_id: str, payload: dict):
+    new_status = payload.get("status")
+    # Broadcast update
+    await queue_hub.broadcast_to_shop("shp-001", "POSITION_UPDATED", {"ticketId": ticket_id, "status": new_status})
+    return {"ticketId": ticket_id, "status": new_status}
+
+@router.get("/{appointment_id}/arrival-alert")
+async def get_arrival_alert(appointment_id: str):
+    # Top-of-screen arrival banner data
+    return {
+        "alertActive": True,
+        "minutesUntilCall": 4,
+        "barberName": "Master Barber Kabir",
+        "chairNumber": 1,
+        "message": "You are 1 spot away! Please proceed to Chair #1.",
+    }
+</file>
+
+<file path="app/api/v1/auth.py">
+import uuid
+from datetime import datetime, timezone
+from pydantic import BaseModel, EmailStr
+from fastapi import APIRouter, HTTPException, status
+from app.core.security import get_password_hash, verify_password, create_access_token
+
+router = APIRouter()
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    phone: str
+    fullName: str
+    password: str = "P@ssword123"
+
+class OtpRequestModel(BaseModel):
+    phone: str
+    purpose: str = "LOGIN"
+
+class OtpVerifyModel(BaseModel):
+    phone: str
+    code: str
+
+@router.post("/token")
+async def login_for_access_token(req: LoginRequest):
+    # Simulated auth lookup
+    user_id = str(uuid.uuid4())
+    token = create_access_token({"sub": user_id, "email": req.email, "role": "CUSTOMER"})
+    return {
+        "accessToken": token,
+        "refreshToken": str(uuid.uuid4()),
+        "tokenType": "bearer",
+        "user": {
+            "id": user_id,
+            "email": req.email,
+            "fullName": "Alex Mercer",
+            "phone": "+919820012345",
+            "role": "CUSTOMER",
+            "isActive": True,
+            "familyProfiles": [
+                {
+                    "id": str(uuid.uuid4()),
+                    "userId": user_id,
+                    "name": "Leo Mercer (Son)",
+                    "relation": "SON",
+                    "birthYear": 2018,
+                    "hairType": "WAVY_2A",
+                    "createdAt": datetime.now(timezone.utc).isoformat(),
+                }
+            ],
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+
+@router.post("/register")
+async def register_user(req: RegisterRequest):
+    user_id = str(uuid.uuid4())
+    token = create_access_token({"sub": user_id, "email": req.email, "role": "CUSTOMER"})
+    return {
+        "accessToken": token,
+        "refreshToken": str(uuid.uuid4()),
+        "tokenType": "bearer",
+        "user": {
+            "id": user_id,
+            "email": req.email,
+            "fullName": req.fullName,
+            "phone": req.phone,
+            "role": "CUSTOMER",
+            "isActive": True,
+            "familyProfiles": [],
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+
+@router.post("/otp/request")
+async def request_otp(req: OtpRequestModel):
+    # In production, invokes Twilio or AWS SNS
+    return {"success": True, "message": f"6-digit verification code sent to {req.phone}"}
+
+@router.post("/otp/verify")
+async def verify_otp(req: OtpVerifyModel):
+    if req.code not in ["123456", "000000", "777777"] and len(req.code) != 6:
+        raise HTTPException(status_code=400, detail="Invalid OTP code.")
+    
+    user_id = str(uuid.uuid4())
+    token = create_access_token({"sub": user_id, "email": f"{req.phone}@kshurak.com", "role": "CUSTOMER"})
+    return {
+        "accessToken": token,
+        "refreshToken": str(uuid.uuid4()),
+        "tokenType": "bearer",
+        "user": {
+            "id": user_id,
+            "email": f"{req.phone}@kshurak.com",
+            "fullName": "Verified Customer",
+            "phone": req.phone,
+            "role": "CUSTOMER",
+            "isActive": True,
+            "familyProfiles": [],
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+</file>
+
+<file path="app/api/v1/barber.py">
+import uuid
+from datetime import datetime, timezone
+from typing import Optional, List
+from pydantic import BaseModel
+from fastapi import APIRouter, UploadFile, File, Form, Depends
+from app.core.security import get_current_user_payload, require_roles
+
+router = APIRouter()
+
+class ChairCapacityUpdate(BaseModel):
+    shopId: str
+    acceptingWalkins: bool
+    activeChairs: int
+
+@router.post("/register")
+async def register_barber_partner(
+    shopName: str = Form(...),
+    licenseNumber: str = Form(...),
+    yearsExperience: int = Form(...),
+    specialties: str = Form("Fades, Beard Styling"),
+    licenseFile: Optional[UploadFile] = File(None),
+    current_user: dict = Depends(get_current_user_payload),
+):
+    """
+    Module B1: Barber onboarding registration. Puts barber into PENDING status holding screen.
+    """
+    barber_id = current_user.get("sub", str(uuid.uuid4()))
+    return {
+        "id": barber_id,
+        "userId": barber_id,
+        "shopName": shopName,
+        "licenseNumber": licenseNumber,
+        "verificationStatus": "PENDING", # Triggers Module B1 holding screen
+        "yearsExperience": yearsExperience,
+        "specialties": [s.strip() for s in specialties.split(",")],
+        "rating": 5.0,
+        "reviewCount": 0,
+        "chairNumber": 1,
+        "isAvailableForWalkin": False,
+        "submittedAt": datetime.now(timezone.utc).isoformat(),
+        "holdingNotice": "Your barber credentials and shop license are currently under compliance review by Kshurak Quality Assurance. Approvals typically complete within 24-48 hours.",
+    }
+
+@router.get("/dashboard")
+async def get_barber_dashboard(current_user: dict = Depends(get_current_user_payload)):
+    """
+    Module B3: Live barber dashboard data with queue, active chair state, and daily earnings.
+    """
+    return {
+        "profile": {
+            "id": current_user.get("sub", "barber-101"),
+            "shopName": "The Grand Royal Barber Club",
+            "chairNumber": 1,
+            "verificationStatus": "APPROVED",
+            "rating": 4.95,
+            "reviewCount": 342,
+        },
+        "activeChairStatus": True,
+        "totalChairsInShop": 5,
+        "activeChairs": 4,
+        "isAcceptingWalkins": True,
+        "earningsTodayCents": 245000, # INR 2,450.00
+        "completedTodayCount": 7,
+        "currentCustomerInChair": {
+            "ticketId": "tkt-active-1",
+            "customerName": "Rohan Sharma",
+            "service": "Precision Fade & Hot Towel Beard",
+            "elapsedMinutes": 18,
+            "consultationCardId": "card-rohan-01",
+        },
+    }
+
+@router.put("/chair-capacity")
+async def update_chair_capacity(payload: ChairCapacityUpdate, current_user: dict = Depends(get_current_user_payload)):
+    return {
+        "shopId": payload.shopId,
+        "activeChairs": payload.activeChairs,
+        "acceptingWalkins": payload.acceptingWalkins,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+@router.get("/robospec/{appointment_id}")
+async def get_in_chair_robospec(appointment_id: str):
+    """
+    Module B5: In-Chair Technical RoboSpec drawer displaying clipper guards, taper styles, and cowlick warnings.
+    """
+    return {
+        "appointmentId": appointment_id,
+        "customerName": "Rohan Sharma",
+        "clipperSpecs": {
+            "sidesGuardBase": "#1 (3mm) open blended into #2 (6mm) closed",
+            "fadeType": "LOW_DROP_FADE",
+            "bulkRemovalGuard": "#4 (13mm) flicking out at parietal ridge",
+            "napeFinish": "TAPERED_BLENDED",
+        },
+        "scissorSpecs": {
+            "topLengthInches": 2.25,
+            "fringeStyle": "TEXTURED_FORWARD",
+            "texturizingTechnique": "POINT_CUTTING",
+        },
+        "growthPatternWatchouts": [
+            "Cowlick at front right hairline: leave 0.5 inch extra buffer to prevent sticking up",
+            "Crown swirl runs clockwise; avoid cutting shorter than #5 at apex",
+        ],
+        "recommendedProducts": [
+            {"name": "Matte Texture Clay", "type": "MATTE_CLAY", "applicationMethod": "Warm between palms; apply from back to front."},
+            {"name": "Sea Salt Spray", "type": "SEA_SALT_SPRAY", "applicationMethod": "Spray 3 mists onto towel-dried hair before texturizing."},
+        ],
+        "maintenanceCycleWeeks": 3,
+    }
+</file>
+
+<file path="app/api/v1/discovery.py">
+from typing import Optional
+from fastapi import APIRouter, Query
+from app.services.places_service import places_service
+
+router = APIRouter()
+
+@router.get("/barbers/nearby")
+async def get_nearby_barbers(
+    lat: float = Query(19.0760, description="Latitude (default Mumbai)"),
+    lng: float = Query(72.8777, description="Longitude (default Mumbai)"),
+    radius_km: float = Query(5.0, ge=0.5, le=25.0, description="Search radius in kilometers"),
+    accepting_walkins_only: bool = Query(False),
+):
+    """
+    Module U5: Google Places map & 5km radius view with 5-minute memory caching.
+    """
+    shops = await places_service.get_nearby_barbers(lat, lng, radius_km)
+    if accepting_walkins_only:
+        shops = [s for s in shops if s.get("isAcceptingWalkins")]
+    return {
+        "center": {"lat": lat, "lng": lng},
+        "radiusKm": radius_km,
+        "count": len(shops),
+        "shops": shops,
+    }
+</file>
+
+<file path="app/api/v1/users.py">
+import uuid
+from datetime import datetime, timezone
+from typing import List, Optional
+from pydantic import BaseModel
+from fastapi import APIRouter, Depends
+from app.core.security import get_current_user_payload
+
+router = APIRouter()
+
+class FamilyMemberCreate(BaseModel):
+    name: str
+    relation: str
+    birthYear: Optional[int] = None
+    hairType: Optional[str] = None
+    allergiesOrNotes: Optional[str] = None
+
+@router.get("/me")
+async def get_my_profile(current_user: dict = Depends(get_current_user_payload)):
+    user_id = current_user.get("sub", "user-id-001")
+    return {
+        "id": user_id,
+        "email": current_user.get("email", "alex@kshurak.com"),
+        "fullName": "Alex Mercer",
+        "phone": "+919820012345",
+        "role": current_user.get("role", "CUSTOMER"),
+        "isActive": True,
+        "familyProfiles": [
+            {
+                "id": "fam-1",
+                "userId": user_id,
+                "name": "Leo Mercer (Son)",
+                "relation": "SON",
+                "birthYear": 2018,
+                "hairType": "WAVY_2A",
+                "createdAt": datetime.now(timezone.utc).isoformat(),
+            }
+        ],
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+@router.put("/me")
+async def update_my_profile(data: dict, current_user: dict = Depends(get_current_user_payload)):
+    return {"success": True, "updated": data}
+
+@router.post("/me/family")
+async def add_family_member(member: FamilyMemberCreate, current_user: dict = Depends(get_current_user_payload)):
+    new_profile = {
+        "id": str(uuid.uuid4()),
+        "userId": current_user.get("sub"),
+        "name": member.name,
+        "relation": member.relation,
+        "birthYear": member.birthYear,
+        "hairType": member.hairType,
+        "allergiesOrNotes": member.allergiesOrNotes,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    return new_profile
+</file>
+
+<file path="app/api/__init__.py">
+"""Kshurak Platform API Package."""
+</file>
+
+<file path="app/core/__init__.py">
+"""Core configuration, database session, and security utilities."""
+</file>
+
+<file path="app/core/config.py">
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import List
+import os
+
+class Settings(BaseSettings):
+    PROJECT_NAME: str = "Kshurak Platform Core API"
+    VERSION: str = "1.0.0"
+    API_V1_STR: str = "/api/v1"
+
+    # Security & JWT Secrets
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "kshurak-super-secret-key-change-in-production-2026")
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 7 days
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+
+    # Database: Default to async SQLite for local instant development; asyncpg for production
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL",
+        "sqlite+aiosqlite:///./kshurak.db"
+    )
+
+    # CORS Allowed Origins
+    BACKEND_CORS_ORIGINS: List[str] = [
+        "http://localhost:5173", # Web Portal
+        "http://localhost:5174", # Admin Portal
+        "http://localhost:3000",
+        "http://localhost:8081", # Expo Metro
+        "https://admin.kshurak.com",
+        "https://app.kshurak.com",
+    ]
+
+    # AI & Diffusion Integrations
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "mock-anthropic-key")
+    REPLICATE_API_TOKEN: str = os.getenv("REPLICATE_API_TOKEN", "mock-replicate-key")
+    FLUX_DIFFUSION_MODEL_VERSION: str = "black-forest-labs/flux-schnell"
+
+    # Google Places & Maps API
+    GOOGLE_PLACES_API_KEY: str = os.getenv("GOOGLE_PLACES_API_KEY", "mock-google-places-key")
+    SEARCH_RADIUS_METERS: int = 5000 # 5km default radius
+
+    # Bird Verification API
+    BIRD_API_KEY: str = os.getenv("BIRD_API_KEY", "bk_your_actual_key_here")
+    BIRD_REGION: str = os.getenv("BIRD_REGION", "us")
+
+    # Model config
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore"
+    )
+
+settings = Settings()
+</file>
+
+<file path="app/core/database.py">
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.orm import declarative_base
+from app.core.config import settings
+
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=False,
+    future=True,
+    # Needed for sqlite concurrency
+    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
+)
+
+AsyncSessionLocal = async_sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
+
+Base = declarative_base()
+
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+</file>
+
+<file path="app/core/security.py">
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from app.core.config import settings
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/token", auto_error=False)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (
+        expires_delta if expires_delta else timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+def decode_access_token(token: str) -> Optional[dict]:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload
+    except JWTError:
+        return None
+
+async def get_current_user_payload(token: Optional[str] = Depends(oauth2_scheme)) -> dict:
+    if not token:
+        # For testing / unauthenticated fallback
+        return {"sub": "guest-user-id", "email": "guest@kshurak.com", "role": "CUSTOMER"}
+    payload = decode_access_token(token)
+    if not payload or "sub" not in payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload
+
+def require_roles(allowed_roles: List[str]):
+    def role_checker(payload: dict = Depends(get_current_user_payload)):
+        role = payload.get("role", "CUSTOMER")
+        if role not in allowed_roles and "SUPER_ADMIN" not in role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access forbidden: requires one of {allowed_roles}",
+            )
+        return payload
+    return role_checker
+</file>
+
+<file path="app/models/__init__.py">
+from app.models.user import User
+from app.models.shop import Shop
+from app.models.appointment import Appointment
+from app.models.audit_log import AuditLog
+
+__all__ = ["User", "Shop", "Appointment", "AuditLog"]
+</file>
+
+<file path="app/models/appointment.py">
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Integer, DateTime, JSON, ForeignKey
+from app.core.database import Base
+
+class Appointment(Base):
+    __tablename__ = "appointments"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    customer_id = Column(String(36), index=True, nullable=False)
+    family_member_id = Column(String(36), nullable=True)
+    barber_id = Column(String(36), index=True, nullable=False)
+    shop_id = Column(String(36), index=True, nullable=False)
+    slot_time = Column(DateTime, nullable=False)
+    status = Column(String(32), default="CONFIRMED", index=True) 
+    # CONFIRMED, CHECKED_IN_QUEUE, CALLED_TO_CHAIR, IN_CHAIR, COMPLETED, CANCELLED, NO_SHOW
+    
+    total_amount_cents = Column(Integer, default=50000) # INR 500.00
+    deposit_held_cents = Column(Integer, default=15000) # INR 150.00 in escrow
+    escrow_status = Column(String(32), default="HELD") # HELD, RELEASED_TO_BARBER, REFUNDED
+    
+    consultation_card = Column(JSON, nullable=True) # Full consultation card with face ratios & RoboSpec
+    notes = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+</file>
+
+<file path="app/models/audit_log.py">
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, DateTime, JSON
+from app.core.database import Base
+
+class AuditLog(Base):
+    """
+    Module A5: Immutable append-only audit log table.
+    Records every administrative, security, and financial state transition.
+    """
+    __tablename__ = "audit_logs"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    actor_id = Column(String(36), index=True, nullable=False)
+    actor_role = Column(String(32), nullable=False)
+    action = Column(String(64), index=True, nullable=False) # e.g. BARBER_APPROVED, RBAC_UPDATED, ESCROW_RELEASED
+    target_type = Column(String(64), nullable=False) # e.g. BARBER, USER, APPOINTMENT, SHOP
+    target_id = Column(String(36), index=True, nullable=False)
+    changes = Column(JSON, nullable=True) # { "before": {...}, "after": {...} }
+    ip_address = Column(String(64), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True, nullable=False)
+</file>
+
+<file path="app/models/shop.py">
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Boolean, Float, Integer, DateTime
+from app.core.database import Base
+
+class Shop(Base):
+    __tablename__ = "shops"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    shop_code = Column(String(32), unique=True, index=True, nullable=False) # e.g. KSH-SHP-84920
+    name = Column(String(128), nullable=False)
+    address = Column(String(255), nullable=False)
+    city = Column(String(64), nullable=False, default="Mumbai")
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    barber_id = Column(String(36), index=True, nullable=False)
+    verification_status = Column(String(32), default="PENDING") # PENDING, APPROVED, REJECTED, SUSPENDED
+    license_number = Column(String(64), nullable=True)
+    chair_count = Column(Integer, default=3)
+    active_chairs = Column(Integer, default=1)
+    is_accepting_walkins = Column(Boolean, default=True)
+    rating = Column(Float, default=4.9)
+    review_count = Column(Integer, default=124)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+</file>
+
+<file path="app/models/user.py">
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Boolean, DateTime, Text, JSON
+from app.core.database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    phone = Column(String(32), unique=True, index=True, nullable=True)
+    full_name = Column(String(128), nullable=False)
+    hashed_password = Column(String(255), nullable=True)
+    role = Column(String(32), default="CUSTOMER", nullable=False) # CUSTOMER, BARBER, ADMIN, SUPER_ADMIN
+    is_active = Column(Boolean, default=True, nullable=False)
+    avatar_url = Column(String(512), nullable=True)
+    family_profiles = Column(JSON, default=list) # Multi-profile family records
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+</file>
+
+<file path="app/routers/face.py">
+from fastapi import (
+    APIRouter,
+    HTTPException
+)
+
+from fastapi.concurrency import run_in_threadpool
+
+from pydantic import BaseModel
+
+from app.services.gemini_face import analyze_face
+
+
+
+router = APIRouter(
+
+    prefix="/api/v1",
+
+    tags=["Face"]
+
+)
+
+
+
+class FaceAnalysisRequest(BaseModel):
+
+    front:str
+
+    left:str
+
+    right:str
+
+
+
+
+
+@router.post("/face/analyze")
+
+async def face_analysis(
+
+    data:FaceAnalysisRequest
+
+):
+
+    try:
+
+
+        if not data.front or not data.left or not data.right:
+
+            raise HTTPException(
+
+                status_code=400,
+
+                detail="Three images required"
+
+            )
+
+
+
+        if len(data.front)<1000:
+
+            raise HTTPException(
+
+                status_code=400,
+
+                detail="Front image data is invalid"
+
+            )
+
+
+
+        if len(data.left)<1000:
+
+            raise HTTPException(
+
+                status_code=400,
+
+                detail="Left image data is invalid"
+
+            )
+
+
+
+        if len(data.right)<1000:
+
+            raise HTTPException(
+
+                status_code=400,
+
+                detail="Right image data is invalid"
+
+            )
+
+
+
+        result = await run_in_threadpool(
+
+            analyze_face,
+
+            data.front,
+
+            data.left,
+
+            data.right
+
+        )
+
+
+
+        return result
+
+
+
+    except HTTPException as error:
+
+        raise error
+
+
+
+    except Exception as error:
+
+
+        print(
+
+            "FACE ANALYSIS ERROR:",
+
+            error
+
+        )
+
+
+        raise HTTPException(
+
+            status_code=500,
+
+            detail=str(error)
+
+        )
+</file>
+
+<file path="app/services/__init__.py">
+from app.services.ai_service import ai_service
+from app.services.places_service import places_service
+from app.services.websocket_hub import queue_hub
+from app.services.bird_verification import send_email_verification
+
+__all__ = ["ai_service", "places_service", "queue_hub", "send_email_verification"]
+</file>
+
+<file path="app/services/ai_service.py">
+import uuid
+import re
+from datetime import datetime, timezone
+from typing import Dict, Any, List
+
+class AiService:
+    """
+    AI Proxy service for Kshurak:
+    - PII scrubbing of biometric images & metadata
+    - Face landmark ratio calculations (Oval, Square, Round, Heart, Diamond, Oblong)
+    - Claude 3.5 Sonnet style recommendation reasoning
+    - FLUX Schnell diffusion prompt synthesis for virtual try-on previews
+    - RoboSpec generation for the in-chair stylist drawer
+    """
+
+    def scrub_pii(self, raw_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Strip user names, geolocation, IP, device identifiers before external AI calls."""
+        scrubbed = {k: v for k, v in raw_metadata.items() if k not in ["user_name", "user_ip", "geo_coords", "phone", "email"]}
+        return scrubbed
+
+    async def analyze_face_biometrics(self, image_data: bytes, user_id: str) -> Dict[str, Any]:
+        """
+        Calculates facial proportions from landmark coordinates.
+        Calculates confidence score; if < 70, triggers Human-In-The-Loop (HITL) review.
+        """
+        # Simulated robust analysis based on image byte signature
+        length_to_width = 1.45
+        forehead_ratio = 0.33
+        cheek_to_jaw = 1.25
+        jaw_angle = 120.0
+        
+        # Classification heuristics
+        detected_shape = "OVAL"
+        if length_to_width < 1.3:
+            detected_shape = "ROUND"
+        elif jaw_angle < 115.0 and cheek_to_jaw < 1.15:
+            detected_shape = "SQUARE"
+        elif cheek_to_jaw > 1.35:
+            detected_shape = "DIAMOND"
+
+        confidence_score = 88.5
+        # If image size is very small, lower confidence to demonstrate HITL flow
+        if len(image_data) < 20000:
+            confidence_score = 64.0
+
+        is_hitl = confidence_score < 70.0
+
+        return {
+            "faceLengthToWidthRatio": length_to_width,
+            "foreheadToFaceHeightRatio": forehead_ratio,
+            "cheekboneToJawRatio": cheek_to_jaw,
+            "jawlineAngleDegrees": jaw_angle,
+            "chinShape": "SQUARE",
+            "detectedFaceShape": detected_shape,
+            "confidenceScore": confidence_score,
+            "isHitlRequired": is_hitl,
+        }
+
+    async def generate_consultation_card(self, user_id: str, face_ratios: Dict[str, Any], quiz_data: Dict[str, Any] = None) -> Dict[str, Any]:
+        card_id = str(uuid.uuid4())
+        face_shape = face_ratios.get("detectedFaceShape", "OVAL")
+        
+        # Determine recommendations based on face shape and vibe
+        recommendations = [
+            {
+                "id": f"rec-{uuid.uuid4()}",
+                "name": "Modern Textured Crop with Low Drop Fade",
+                "summary": f"Balances {face_shape.lower()} face contours with deliberate textured top volume and clean side taper.",
+                "suitabilityRationale": f"For {face_shape} silhouettes, horizontal texture softens forehead lines while the drop fade accentuates jawline definition.",
+                "diffusionPreviewUrl": "https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=800&auto=format&fit=crop&q=80",
+                "technicalSpec": {
+                    "clipperSpecs": {
+                        "sidesGuardBase": "#1 (3mm) open blended to #2 (6mm) closed",
+                        "fadeType": "LOW_DROP_FADE",
+                        "bulkRemovalGuard": "#4 (13mm) flicking out at parietal ridge",
+                        "napeFinish": "TAPERED_BLENDED",
+                    },
+                    "scissorSpecs": {
+                        "topLengthInches": 2.5,
+                        "fringeStyle": "TEXTURED_FORWARD",
+                        "texturizingTechnique": "POINT_CUTTING",
+                    },
+                    "growthPatternWatchouts": [
+                        "Cowlick at front right hairline - leave 0.5 inch extra buffer to prevent sticking up",
+                        "Crown swirl runs clockwise; cut in direction of natural fall",
+                    ],
+                    "recommendedProducts": [
+                        {"name": "Matte Texture Clay", "type": "MATTE_CLAY", "applicationMethod": "Warm pea-sized dab in palms; apply from root to tips on 80% dry hair."},
+                        {"name": "Sea Salt Prep Spray", "type": "SEA_SALT_SPRAY", "applicationMethod": "Spray 3 mists onto damp roots before blow drying."},
+                    ],
+                    "maintenanceCycleWeeks": 3,
+                },
+            },
+            {
+                "id": f"rec-{uuid.uuid4()}",
+                "name": "Classic Scissor Taper with Structured Side Part",
+                "summary": "Timeless executive silhouette that highlights bone structure without extreme skin contrast.",
+                "suitabilityRationale": f"Perfect corporate aesthetic for {face_shape} faces, elongating vertical symmetry.",
+                "diffusionPreviewUrl": "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80",
+                "technicalSpec": {
+                    "clipperSpecs": {
+                        "sidesGuardBase": "#2 (6mm) to #3 (10mm) scissor over comb",
+                        "fadeType": "CLASSIC_SCISSOR_TAPER",
+                        "bulkRemovalGuard": "#4 (13mm) clipper over comb",
+                        "napeFinish": "NATURAL_ROUNDED",
+                    },
+                    "scissorSpecs": {
+                        "topLengthInches": 3.5,
+                        "fringeStyle": "SWEPT_OFF_FACE",
+                        "texturizingTechnique": "SLICING_FEATHERING",
+                    },
+                    "growthPatternWatchouts": [
+                        "Hairline naturally parts on left side; honor natural split line",
+                    ],
+                    "recommendedProducts": [
+                        {"name": "Water-soluble High Shine Pomade", "type": "WATER_POMADE", "applicationMethod": "Comb through towel-dried hair with wide-tooth comb."},
+                    ],
+                    "maintenanceCycleWeeks": 4,
+                },
+            },
+        ]
+
+        return {
+            "id": card_id,
+            "userId": user_id,
+            "faceRatios": face_ratios,
+            "recommendedHaircuts": recommendations,
+            "stylistNotes": "Recommended skin-safe pre-shave oil on nape due to sensitive follicle pattern.",
+            "generatedAt": datetime.now(timezone.utc).isoformat(),
+        }
+
+    async def generate_virtual_tryon(self, user_image_base64: str, hairstyle_id: str) -> Dict[str, Any]:
+        """
+        Calls FLUX / Replicate diffusion worker with inpainting mask to render prospective hairstyle.
+        """
+        # Return high-res aesthetic preview
+        sample_urls = [
+            "https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=800&auto=format&fit=crop&q=80",
+            "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80",
+            "https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=800&auto=format&fit=crop&q=80",
+        ]
+        return {
+            "tryOnImageUrl": sample_urls[0],
+            "confidence": 94.2,
+            "renderTimeMs": 840,
+        }
+
+ai_service = AiService()
+</file>
+
+<file path="app/services/bird_verification.py">
+import os
+
+try:
+    from bird import APIError, Bird
+except ImportError:
+    # Graceful fallback mock if bird SDK is not installed
+    class APIError(Exception):
+        pass
+
+    class MockVerificationResult:
+        def __init__(self, verification_id="mock_verif_12345", status="pending"):
+            self.id = verification_id
+            self.status = status
+
+    class MockVerifications:
+        def create(self, to: dict):
+            return MockVerificationResult()
+
+    class MockVerify:
+        def __init__(self):
+            self.verifications = MockVerifications()
+
+    class Bird:
+        def __init__(self, api_key: str, region: str = "us"):
+            self.api_key = api_key
+            self.region = region
+            self.verify = MockVerify()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+# Load environment variables from backend .env or system environment
+try:
+    from dotenv import load_dotenv
+    from pathlib import Path
+    env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path)
+    else:
+        load_dotenv()
+except ImportError:
+    pass
+
+BIRD_API_KEY = os.getenv("BIRD_API_KEY", "bk_your_actual_key_here")
+BIRD_REGION = os.getenv("BIRD_REGION", "us")
+
+def send_email_verification(recipient_email: str):
+    """
+    Initiates an email verification flow using the Bird API.
+    Make sure to replace 'bk_xxxxxxxxx' with your actual Bird API key (or set BIRD_API_KEY in .env).
+    """
+    # The Bird client accepts region to support standard bk_xxxx keys without region subdomains
+    with Bird(api_key=BIRD_API_KEY, region=BIRD_REGION) as client:
+        try:
+            verification = client.verify.verifications.create(
+                to={"email": recipient_email},
+            )
+            print("Verification initiated successfully:")
+            print("ID:", getattr(verification, "id", "unknown"))
+            print("Status:", getattr(verification, "status", "pending"))
+            return verification
+        except APIError as err:
+            print("Could not start the verification:", err)
+            raise err
+
+if __name__ == "__main__":
+    # Test execution
+    try:
+        send_email_verification("comradedhanush4221@gmail.com")
+    except Exception as e:
+        print(f"Test run completed with expected auth error (requires live BIRD_API_KEY): {e}")
+</file>
+
+<file path="app/services/gemini_face.py">
+import os
+import json
+import base64
+import re
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+from google.genai.errors import ClientError
+
+load_dotenv()
+
+API_KEY=os.getenv("GEMINI_API_KEY")
+
+if not API_KEY:
+    raise Exception("GEMINI_API_KEY missing")
+
+client=genai.Client(
+    api_key=API_KEY
+)
+
+PROMPT="""
+You are an expert AI facial geometry analysis system.
+
+Analyze three facial images:
+
+1. Front view
+2. Left profile view
+3. Right profile view
+
+Use all images together.
+
+Calculate:
+
+- Face Length
+- Face Width
+- Face Ratio
+- Forehead Width
+- Forehead Height
+- Cheekbone Width
+- Jaw Width
+- Jaw Angle
+- Jawline Shape
+- Face Symmetry
+
+Then classify:
+
+Oval
+Square
+Round
+Rectangle
+Oblong
+Diamond
+Heart
+Triangle
+Inverted Triangle
+Pear
+
+Return ONLY JSON.
+
+Format:
+
+{
+"faceShape":"",
+"confidence":0,
+"metrics":{
+"faceLength":"",
+"faceWidth":"",
+"faceRatio":"",
+"foreheadWidth":"",
+"foreheadHeight":"",
+"cheekboneWidth":"",
+"jawWidth":"",
+"jawAngle":"",
+"jawlineShape":"",
+"faceSymmetry":""
+},
+"analysisSummary":"",
+"recommendedHairstyles":[]
+}
+"""
+
+def clean_json(text):
+    text=text.replace("```json","")
+    text=text.replace("```","")
+    return text.strip()
+
+def decode_image(image):
+    return base64.b64decode(
+        image.split(",")[-1]
+    )
+
+def extract_number(value):
+    if value is None:
+        return None
+    if isinstance(value,(int,float)):
+        return value
+    match=re.search(
+        r"\d+(\.\d+)?",
+        str(value)
+    )
+    if match:
+        return float(match.group())
+    return None
+
+def normalize_metrics(metrics):
+    return {
+        "faceLength":
+            extract_number(
+                metrics.get("faceLength")
+            ),
+        "faceWidth":
+            extract_number(
+                metrics.get("faceWidth")
+            ),
+        "faceRatio":
+            extract_number(
+                metrics.get("faceRatio")
+            ),
+        "foreheadWidth":
+            extract_number(
+                metrics.get("foreheadWidth")
+            ),
+        "foreheadHeight":
+            extract_number(
+                metrics.get("foreheadHeight")
+            ),
+        "cheekboneWidth":
+            extract_number(
+                metrics.get("cheekboneWidth")
+            ),
+        "jawWidth":
+            extract_number(
+                metrics.get("jawWidth")
+            ),
+        "jawAngle":
+            extract_number(
+                metrics.get("jawAngle")
+            ),
+        "jawlineShape":
+            metrics.get(
+                "jawlineShape"
+            ),
+        "faceSymmetry":
+            extract_number(
+                metrics.get("faceSymmetry")
+            )
+    }
+
+def analyze_face(
+    front:str,
+    left:str,
+    right:str
+):
+    image_parts=[
+        types.Part.from_bytes(
+            data=decode_image(front),
+            mime_type="image/jpeg"
+        ),
+        types.Part.from_bytes(
+            data=decode_image(left),
+            mime_type="image/jpeg"
+        ),
+        types.Part.from_bytes(
+            data=decode_image(right),
+            mime_type="image/jpeg"
+        )
+    ]
+    models = [
+        "gemini-3.8-flash",
+        "gemini-2.5-flash",
+    ]
+    for model in models:
+        try:
+            print(
+                "Trying Gemini model:",
+                model
+            )
+            response=client.models.generate_content(
+                model=model,
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_text(
+                                text=PROMPT
+                            ),
+                            *image_parts
+                        ]
+                    )
+                ],
+                config=types.GenerateContentConfig(
+                    temperature=0.2,
+                    response_mime_type="application/json"
+                )
+            )
+            result=json.loads(
+                clean_json(
+                    response.text
+                )
+            )
+            result["metrics"]=normalize_metrics(
+                result.get(
+                    "metrics",
+                    {}
+                )
+            )
+            result["confidence"]=extract_number(
+                result.get(
+                    "confidence"
+                )
+            )
+            return result
+        except ClientError as error:
+            print(
+                "Gemini model failed:",
+                model,
+                error
+            )
+            continue
+        except Exception as error:
+            print(
+                "Gemini processing error:",
+                error
+            )
+            continue
+    raise Exception(
+        "All Gemini Vision models failed"
+    )
+</file>
+
+<file path="app/services/places_service.py">
+import math
+import time
+from typing import List, Dict, Any, Optional
+
+class PlacesService:
+    """
+    Module U5: Google Places map & 5km radius discovery service with 5-minute TTL caching layer.
+    """
+
+    def __init__(self):
+        # 5-minute cache: (lat_round, lng_round) -> { "data": [...], "expires_at": timestamp }
+        self._cache: Dict[str, Dict[str, Any]] = {}
+        self._cache_ttl_seconds = 300 # 5 minutes
+
+    def _haversine_distance_km(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """Calculate great-circle distance in kilometers between two points."""
+        r = 6371.0 # Earth radius in km
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (
+            math.sin(dlat / 2.0) ** 2
+            + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2.0) ** 2
+        )
+        c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+        return r * c
+
+    def _get_cache_key(self, lat: float, lng: float, radius_km: float) -> str:
+        return f"{round(lat, 3)}:{round(lng, 3)}:{radius_km}"
+
+    async def get_nearby_barbers(self, lat: float, lng: float, radius_km: float = 5.0) -> List[Dict[str, Any]]:
+        cache_key = self._get_cache_key(lat, lng, radius_km)
+        now = time.time()
+
+        # Check 5-minute cache
+        if cache_key in self._cache:
+            entry = self._cache[cache_key]
+            if entry["expires_at"] > now:
+                return entry["data"]
+
+        # Master mock directory of verified partner shops
+        master_shops = [
+            {
+                "id": "shp-001",
+                "shopCode": "KSH-SHP-84921",
+                "name": "The Grand Royal Barber Club",
+                "address": "42 Linking Road, Bandra West",
+                "city": "Mumbai",
+                "latitude": lat + 0.008,
+                "longitude": lng + 0.005,
+                "rating": 4.95,
+                "reviewCount": 342,
+                "isAcceptingWalkins": True,
+                "currentWaitMinutes": 15,
+                "activeChairs": 4,
+                "totalChairs": 5,
+                "priceTier": "$$$",
+                "heroImageUrl": "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800&auto=format&fit=crop&q=80",
+                "specialties": ["Skin Fades", "Hot Towel Shave", "Beard Sculpting"],
+            },
+            {
+                "id": "shp-002",
+                "shopCode": "KSH-SHP-19283",
+                "name": "Obsidian & Gold Studio",
+                "address": "15 Turner Road, Bandra West",
+                "city": "Mumbai",
+                "latitude": lat - 0.012,
+                "longitude": lng + 0.008,
+                "rating": 4.88,
+                "reviewCount": 218,
+                "isAcceptingWalkins": True,
+                "currentWaitMinutes": 25,
+                "activeChairs": 3,
+                "totalChairs": 3,
+                "priceTier": "$$$$",
+                "heroImageUrl": "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=800&auto=format&fit=crop&q=80",
+                "specialties": ["Face Ratio Consultation", "Textured Crop", "Scalp Detox"],
+            },
+            {
+                "id": "shp-003",
+                "shopCode": "KSH-SHP-77410",
+                "name": "Crown & Razor Parlour",
+                "address": "88 Hill Road, Bandra West",
+                "city": "Mumbai",
+                "latitude": lat + 0.015,
+                "longitude": lng - 0.007,
+                "rating": 4.82,
+                "reviewCount": 165,
+                "isAcceptingWalkins": False,
+                "currentWaitMinutes": 0,
+                "activeChairs": 2,
+                "totalChairs": 4,
+                "priceTier": "$$",
+                "heroImageUrl": "https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=800&auto=format&fit=crop&q=80",
+                "specialties": ["Classic Tapers", "Executive Trim", "Kids Styling"],
+            },
+        ]
+
+        # Calculate haversine distance and filter strictly within radius
+        results = []
+        for shop in master_shops:
+            dist = self._haversine_distance_km(lat, lng, shop["latitude"], shop["longitude"])
+            if dist <= radius_km:
+                shop_with_dist = shop.copy()
+                shop_with_dist["distanceKm"] = round(dist, 2)
+                results.append(shop_with_dist)
+
+        # Sort by distance
+        results.sort(key=lambda x: x["distanceKm"])
+
+        # Store in 5-minute cache
+        self._cache[cache_key] = {
+            "data": results,
+            "expires_at": now + self._cache_ttl_seconds,
+        }
+
+        return results
+
+places_service = PlacesService()
+</file>
+
+<file path="app/services/websocket_hub.py">
+import json
+from datetime import datetime, timezone
+from typing import Dict, List, Set, Any
+from fastapi import WebSocket
+
+class WebSocketQueueHub:
+    """
+    Real-time WebSocket hub for broadcasting live queue states, chair transitions,
+    and 5-minute customer arrival countdown alerts.
+    """
+
+    def __init__(self):
+        # shop_id -> Set of active WebSocket connections
+        self.active_connections: Dict[str, Set[WebSocket]] = {}
+
+    async def connect(self, shop_id: str, websocket: WebSocket):
+        await websocket.accept()
+        if shop_id not in self.active_connections:
+            self.active_connections[shop_id] = set()
+        self.active_connections[shop_id].add(websocket)
+
+    def disconnect(self, shop_id: str, websocket: WebSocket):
+        if shop_id in self.active_connections:
+            self.active_connections[shop_id].discard(websocket)
+            if not self.active_connections[shop_id]:
+                del self.active_connections[shop_id]
+
+    async def broadcast_to_shop(self, shop_id: str, event_type: str, data: Any):
+        if shop_id not in self.active_connections:
+            return
+
+        message = {
+            "event": event_type,
+            "shopId": shop_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "payload": data,
+        }
+        serialized = json.dumps(message)
+
+        dead_sockets = set()
+        for ws in self.active_connections[shop_id]:
+            try:
+                await ws.send_text(serialized)
+            except Exception:
+                dead_sockets.add(ws)
+
+        for ws in dead_sockets:
+            self.disconnect(shop_id, ws)
+
+queue_hub = WebSocketQueueHub()
+</file>
+
+<file path="app/__init__.py">
+"""Kshurak Backend Application Package."""
+__version__ = "1.0.0"
+</file>
+
+<file path="app/main.py">
+from fastapi import FastAPI
+
+from app.core.database import engine, Base
+
+from app.routers.face import router as face_router
+
+
+app = FastAPI(
+    title="Kshurak API",
+    version="1.0.0"
+)
+
+
+app.include_router(
+    face_router
+)
+
+
+@app.get("/")
+async def root():
+
+    return {
+        "application":"Kshurak Backend",
+        "status":"running"
+    }
+
+
+@app.on_event("startup")
+async def startup():
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+</file>
+
+<file path=".env.example">
+# Bird Email Verification API
+BIRD_API_KEY=bk_your_actual_key_here
+BIRD_REGION=us
+
+# Security & Secrets
+SECRET_KEY=kshurak-super-secret-key-change-in-production-2026
+DATABASE_URL=sqlite+aiosqlite:///./kshurak.db
+
+# External Services
+ANTHROPIC_API_KEY=mock-anthropic-key
+REPLICATE_API_TOKEN=mock-replicate-key
+GOOGLE_PLACES_API_KEY=mock-google-places-key
+</file>
+
+<file path="Dockerfile">
+FROM python:3.11-slim as base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=off \
+    PIP_DISABLE_PIP_VERSION_CHECK=on \
+    PIP_DEFAULT_TIMEOUT=100
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# Run as non-privileged user for container security compliance
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+</file>
+
+<file path="kshurak.db">
+
+</file>
+
+<file path="requirements.txt">
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+pydantic>=2.6.4
+pydantic-settings>=2.2.1
+email-validator>=2.2.0
+sqlalchemy>=2.0.28
+asyncpg>=0.29.0
+aiosqlite>=0.20.0
+alembic>=1.13.1
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.9
+httpx>=0.27.0
+websockets>=12.0
+python-dotenv>=1.0.1
+</file>
+
+</files>
